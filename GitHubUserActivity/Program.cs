@@ -1,5 +1,6 @@
 ﻿using System.Collections.ObjectModel;
 using System.Net.Http.Json;
+using System.Text;
 using System.Text.Json;
 using GitHubUserActivity.DataModels;
 
@@ -21,7 +22,7 @@ namespace GitHubUserActivity
         private static GitHubUserActivityParser _instance;
         private string _userName;
         private string _responseString;
-        private ObservableCollection<Event> _userEvents;
+        private List<Event> _userEvents;
 
         private GitHubUserActivityParser()
         {
@@ -45,88 +46,129 @@ namespace GitHubUserActivity
 
         public async Task ParseData()
         {
-            //GetUserName();
+            GetUserName();
             Console.Clear();
             _responseString = await SendRequest();
-            ComputeResponse();
-            PrintData();
+            await ComputeResponse();
+            await PrintData();
         }
 
         private async Task<string> SendRequest()
         {
-            //string url = $"https://api.github.com/users/{_userName}/events";
-
-            string url = $"https://api.github.com/users/ShdwKick/events";
+            string url = $"https://api.github.com/users/{_userName}/events";
             Console.WriteLine("Sending request...");
-            HttpResponseMessage response = await _httpClient.GetAsync(url);
+            try
+            {
+                HttpResponseMessage response = await _httpClient.GetAsync(url);
+                Console.WriteLine("Response received...");
 
-            Console.WriteLine("Response received...");
-            if (response.IsSuccessStatusCode)
-            {
-                string result = await response.Content.ReadAsStringAsync();
-                return result;
+                if (response.IsSuccessStatusCode)
+                    return await response.Content.ReadAsStringAsync();
+                else
+                    return $"Error: {response.StatusCode}";
             }
-            else
+            catch (HttpRequestException ex)
             {
-                var str = await response.Content.ReadAsStringAsync();
-                Console.WriteLine(str);
-                return $"Error: {response.StatusCode}";
+                return $"Request failed: {ex.Message}";
             }
         }
 
-        private void ComputeResponse()
+
+        private async Task ComputeResponse()
         {
-            if (_responseString.Contains("Error:"))
+            Console.Clear();
+            if (_responseString.Contains("Error") || _responseString.Contains("Request failed"))
             {
+                if (_responseString.Contains("Not Found") || _responseString.Contains("NotFound"))
+                {
+                    Console.WriteLine("User not found");
+                    await OfferAnotherUser();
+                    return;
+                }
+
                 Console.WriteLine(_responseString);
-                Console.WriteLine("Press any key");
-                Console.ReadKey();
-                return;
+                await OfferAnotherUser();
+            }
+            if (_responseString == "[]")
+            {
+                Console.WriteLine("No activity in last 3 month");
+                await OfferAnotherUser();
             }
 
-            _userEvents = JsonSerializer.Deserialize<ObservableCollection<Event>>(_responseString);
+            _userEvents = JsonSerializer.Deserialize<List<Event>>(_responseString);
+            if (_userEvents == null || !_userEvents.Any())
+            {
+                Console.WriteLine("No activity in the last 3 months or invalid data.");
+                await OfferAnotherUser();
+            }
         }
 
-        private void PrintData()
+        private async Task PrintData()
         {
-            if (_userEvents == null)
+            if (_userEvents == null || !_userEvents.Any())
             {
-                Console.WriteLine("user events list empty");
+                Console.WriteLine("User events list empty");
                 return;
             }
+
             Console.Clear();
             var groupedEvents = _userEvents.GroupBy(q => q.repo.name);
-            
+            var output = new StringBuilder();
+
             foreach (var gitHubEvent in groupedEvents)
             {
-                Console.WriteLine($"╭GitHub repository - {gitHubEvent.Key}");
-                Console.WriteLine($"│");
+                output.AppendLine($"╭GitHub repository - {gitHubEvent.Key}");
+                output.AppendLine("│");
 
                 foreach (var evnt in gitHubEvent)
                 {
-                    if(evnt != gitHubEvent.First())
-                        Console.WriteLine("│ ╭─────────────────────────────────────────────────────╯");
-                    else
-                        Console.WriteLine("│ ╭──────────────────────────────────────────────────────");
-
-                    Console.WriteLine("│ │ Event ID: " + evnt.id);
-                    Console.WriteLine("│ │ Event Type: " + evnt.type);
-                    Console.WriteLine("│ │ Actor:");
-                    Console.WriteLine("│ │   ├─ Id: " + evnt.actor.id);
-                    Console.WriteLine("│ │   ├─ Login: " + evnt.actor.login);
-                    Console.WriteLine("│ │   └─ URL: " + evnt.actor.url);
-                    Console.WriteLine("│ │ Repository:");
-                    Console.WriteLine("│ │   ├─ Name: " + evnt.repo.name);
-                    Console.WriteLine("│ │   └─ URL: " + evnt.repo.url);
-                    Console.WriteLine("│ │ Public: " + (evnt.isPublic ? "Yes" : "No"));
-                    Console.WriteLine("│ │ Created At: " + evnt.created_at);
-
-                    if(evnt != gitHubEvent.Last())
-                        Console.WriteLine("│ ╰─────────────────────────────────────────────────────╮");
-                    else
-                        Console.WriteLine("╰─╰─────────────────────────────────────────────────────\n");
+                    output.AppendLine("│ ╭──────────────────────────────────────────────────────")
+                        .AppendLine($"│ │ Event ID: {evnt.id}")
+                        .AppendLine($"│ │ Event Type: {evnt.type}")
+                        .AppendLine($"│ │ Actor:")
+                        .AppendLine($"│ │   ├─ Id: {evnt.actor.id}")
+                        .AppendLine($"│ │   ├─ Login: {evnt.actor.login}")
+                        .AppendLine($"│ │   └─ URL: {evnt.actor.url}")
+                        .AppendLine($"│ │ Repository:")
+                        .AppendLine($"│ │   ├─ Name: {evnt.repo.name}")
+                        .AppendLine($"│ │   └─ URL: {evnt.repo.url}")
+                        .AppendLine($"│ │ Public: {(evnt.isPublic ? "Yes" : "No")}")
+                        .AppendLine($"│ │ Created At: {evnt.created_at}");
                 }
+                output.AppendLine("╰─╰─────────────────────────────────────────────────────");
+            }
 
+            PrintToConsole(output.ToString());
+            await OfferAnotherUser();
+        }
+
+        private async Task OfferAnotherUser()
+        {
+            Console.WriteLine("Another user?(y/n)");
+            var key = Console.ReadKey();
+            if (key.Key == ConsoleKey.Y)
+            {
+                Console.Clear();
+                await ParseData();
+                return;
+            }
+            else
+            {
+                Environment.Exit(0);
+            }
+        }
+
+        private static void PrintToConsole(string text, int printSpeed = 5)
+        {
+            for (int i = 0; i < text.Length; i++)
+            {
+                if (Console.KeyAvailable && Console.ReadKey(true).Key == ConsoleKey.Enter)
+                {
+                    Console.Write(text.Substring(i));
+                    break;
+                }
+                Console.Write(text[i]);
+                Thread.Sleep(printSpeed);
             }
         }
     }
