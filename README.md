@@ -7,3 +7,6 @@ How to use:
 2. Lounch programm
 3. Enter user name from GitHubUserActivity
 Now you can see all user public history
+
+
+https://roadmap.sh/projects/github-user-activity
