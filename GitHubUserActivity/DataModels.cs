@@ -59,7 +59,7 @@ namespace GitHubUserActivity.DataModels
         public string type { get; set; }
         public Actor actor { get; set; }
         public Repo repo { get; set; }
-        //public Payload payload { get; set; }
+        //public string payload { get; set; }
         [JsonPropertyName("public")] public bool isPublic { get; set; }
         public DateTime created_at { get; set; }
     }
